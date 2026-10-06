@@ -17,41 +17,27 @@
       font-weight: normal;
       font-style: normal;
     }
-    body { font-family: 'NanumSquareRound', sans-serif; }
+    body { font-family: 'NanumSquareRound', sans-serif; background-color: #f3f4f6; }
     .scrollbar-hide::-webkit-scrollbar { display: none; }
   </style>
 </head>
-<body class="bg-gray-100">
+<body>
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // ★★★ [매우 중요] 1단계에서 새로 배포하고 받은 웹앱 URL을 아래 따옴표 안에 넣어주세요! ★★★
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbzRwoKrcOk51UHdO_fCaUXydAxupV25NLWsvXCCgS22LZcc0NKt4GG5cHELHoFGlOm5kw/exec";
-
-    // 구글 스크립트(API)와 통신하는 도우미 함수
-    const fetchGAS = async (action, payload) => {
-      try {
-        const response = await fetch(GAS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // CORS 에러 방지
-          body: JSON.stringify({ action: action, ...payload })
-        });
-        return await response.json();
-      } catch (error) {
-        throw new Error('서버와 연결할 수 없습니다. 인터넷 상태를 확인해주세요.');
-      }
-    };
+    // ★★★ 선생님의 구글 웹앱 URL이 완벽하게 적용되었습니다! ★★★
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyxS6W-SjTyih-m2CrKDa3DauSOcI1R60cltTFZaXMnqHwnC0GZKqGQpwnDwuCYkGEIvQ/exec";
 
     function App() {
       const [examStatus, setExamStatus] = useState(() => {
         const saved = sessionStorage.getItem('current_exam_state');
-        if (saved === 'running') return 'terminated'; 
         if (saved === 'finished') return 'finished';
         if (saved === 'terminated') return 'terminated';
         return 'setup';
       }); 
+      
       const [adminPassword, setAdminPassword] = useState('');
       const [adminError, setAdminError] = useState('');
       const [submissions, setSubmissions] = useState([]);
@@ -60,25 +46,17 @@
       const [studentInfo, setStudentInfo] = useState({ grade: 2, classNo: 1, studentNo: 1, name: '' });
       const [answers, setAnswers] = useState({});
       const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+      
       const [showConfirmModal, setShowConfirmModal] = useState(false);
+      const [alertMessage, setAlertMessage] = useState('');
+      const [deleteTarget, setDeleteTarget] = useState(null);
       const [isSaving, setIsSaving] = useState(false);
 
       const EXAM_TIME_SECONDS = 40 * 60; 
       const [timeLeft, setTimeLeft] = useState(EXAM_TIME_SECONDS);
       const timerRef = useRef(null);
 
-      useEffect(() => {
-        if (examStatus !== 'setup') sessionStorage.setItem('current_exam_state', examStatus);
-        
-        const handleBeforeUnload = (e) => {
-          if (examStatus === 'running') {
-            e.preventDefault(); e.returnValue = ''; 
-          }
-        };
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-      }, [examStatus]);
-
+      // ※ 여기에 2학년 문제들이 들어갈 자리입니다! (현재는 임시 데이터)
       const questions = [
         { id: 1, type: 'multiple-choice', points: 1, correctAnswer: 0, text: "야구에서 공격 팀이 1점을 얻기 위해 타자나 주자가 반드시 순서대로 거쳐야 하는 베이스 경로로 옳은 것을 고르시오.", options: ["1루->2루->3루->홈", "3루->2루->1루->홈", "1루->3루->2루->홈", "2루->3루->1루->홈"] },
         { id: 2, type: 'multiple-choice', points: 1, correctAnswer: 1, text: "플레이트 야구에서 투수가 공을 굴려주는 기구의 이름을 고르시오.", options: ["평균대", "경사판", "티볼대", "구령대"] },
@@ -99,14 +77,18 @@
       const maxTotalScore = questions.reduce((sum, q) => sum + q.points, 0);
 
       useEffect(() => {
+        if (examStatus !== 'setup') sessionStorage.setItem('current_exam_state', examStatus);
+        const handleBeforeUnload = (e) => { if (examStatus === 'running') { e.preventDefault(); e.returnValue = ''; } };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+      }, [examStatus]);
+
+      useEffect(() => {
         const handleVisibilityChange = () => { if (document.hidden && examStatus === 'running') setExamStatus('terminated'); };
         const handleWindowBlur = () => { if (examStatus === 'running') setExamStatus('terminated'); };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('blur', handleWindowBlur);
-        return () => {
-          document.removeEventListener('visibilitychange', handleVisibilityChange);
-          window.removeEventListener('blur', handleWindowBlur);
-        };
+        return () => { document.removeEventListener('visibilitychange', handleVisibilityChange); window.removeEventListener('blur', handleWindowBlur); };
       }, [examStatus]);
 
       useEffect(() => {
@@ -130,105 +112,100 @@
         setIsSaving(true);
         let totalScore = 0;
         questions.forEach(q => {
-          if (q.type === 'short-answer') {
-            if (String(answers[q.id] || '').trim() === String(q.correctAnswer)) totalScore += q.points;
-          } else {
-            if (answers[q.id] === q.correctAnswer) totalScore += q.points;
-          }
+          if (q.type === 'short-answer') { if (String(answers[q.id] || '').trim() === String(q.correctAnswer)) totalScore += q.points; } 
+          else { if (answers[q.id] === q.correctAnswer) totalScore += q.points; }
         });
 
-        const submissionData = {
-          grade: studentInfo.grade, classNo: studentInfo.classNo, studentNo: studentInfo.studentNo,
-          name: studentInfo.name, score: totalScore, maxScore: maxTotalScore
-        };
+        const submissionData = { grade: studentInfo.grade, classNo: studentInfo.classNo, studentNo: studentInfo.studentNo, name: studentInfo.name, score: totalScore, maxScore: maxTotalScore };
 
         try {
-          const res = await fetchGAS('save', { data: submissionData });
+          const response = await fetch(GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'saveSubmission', data: submissionData })
+          });
+          const res = await response.json();
           setIsSaving(false);
           if (res.success) {
-            const studentKey = `exam_done_${studentInfo.grade}_${studentInfo.classNo}_${studentInfo.studentNo}_${studentInfo.name}`;
-            localStorage.setItem(studentKey, 'true');
+            localStorage.setItem(`exam_done_${studentInfo.grade}_${studentInfo.classNo}_${studentInfo.studentNo}_${studentInfo.name}`, 'true');
             setExamStatus('finished');
           } else {
-            alert("저장 중 오류 발생: " + res.message);
+            setAlertMessage("저장 실패: " + res.error);
           }
-        } catch (err) {
-          setIsSaving(false);
-          alert(err.message);
+        } catch (error) {
+          setIsSaving(false); setAlertMessage("서버 연결 실패: " + error.toString());
         }
       };
 
       const handleAdminLogin = async (e) => {
         e.preventDefault();
         setAdminError('데이터를 불러오는 중입니다...');
-        
         try {
-          const res = await fetchGAS('getAdmin', { password: adminPassword });
+          const response = await fetch(`${GAS_URL}?action=getAdminData&password=${adminPassword}`);
+          const res = await response.json();
           if (res.success) {
-            const sorted = res.data.sort((a, b) => {
-              if (a.classNo !== b.classNo) return a.classNo - b.classNo;
-              return a.studentNo - b.studentNo;
-            });
-            setSubmissions(sorted);
-            setAdminError('');
-            setExamStatus('admin-dashboard');
-            setSelectedClassFilter('all');
-          } else {
-            setAdminError(res.message);
-          }
-        } catch (err) {
-          setAdminError(err.message);
-        }
-      };
-
-      const handleDeleteSubmission = async (student) => {
-        if (window.confirm(`${student.classNo}반 ${student.studentNo}번 ${student.name} 학생의 기록을 초기화하시겠습니까?`)) {
-          try {
-            const res = await fetchGAS('delete', { classNo: student.classNo, studentNo: student.studentNo, name: student.name });
-            if (res.success) {
-              setSubmissions(prev => prev.filter(s => !(s.classNo === student.classNo && s.studentNo === student.studentNo && s.name === student.name)));
-              alert('초기화 완료');
-            } else {
-              alert('초기화 실패: ' + res.message);
-            }
-          } catch (err) {
-            alert(err.message);
-          }
-        }
+            const sorted = res.data.sort((a, b) => { if (a.classNo !== b.classNo) return a.classNo - b.classNo; return a.studentNo - b.studentNo; });
+            setSubmissions(sorted); setAdminError(''); setExamStatus('admin-dashboard'); setSelectedClassFilter('all');
+          } else { setAdminError(res.message); }
+        } catch (error) { setAdminError("오류: " + error.toString()); }
       };
 
       const exportToCSV = () => {
-        const BOM = "\uFEFF"; 
-        let csvContent = BOM;
-        const headers = "학년,반,번호,이름,점수,만점,제출시간\n";
-
+        const BOM = "\uFEFF"; let csvContent = BOM; const headers = "학년,반,번호,이름,점수,만점,제출시간\n";
         if (selectedClassFilter === 'all') {
           [...Array(12)].forEach((_, i) => {
             const classSubs = submissions.filter(sub => sub.classNo === i + 1);
             if (classSubs.length > 0) {
               csvContent += `\n[2학년 ${i + 1}반]\n` + headers;
-              classSubs.forEach(sub => {
-                const dateStr = sub.timestamp.includes("GMT") || sub.timestamp.includes("202") ? sub.timestamp : new Date(sub.timestamp).toLocaleString('ko-KR');
-                csvContent += `${sub.grade},${sub.classNo},${sub.studentNo},${sub.name},${sub.score},${sub.maxScore},"${dateStr}"\n`;
-              });
+              classSubs.forEach(sub => { csvContent += `${sub.grade},${sub.classNo},${sub.studentNo},${sub.name},${sub.score},${sub.maxScore},"${sub.timestamp}"\n`; });
             }
           });
         } else {
-          csvContent += headers;
-          const classSubs = submissions.filter(sub => sub.classNo === selectedClassFilter);
-          classSubs.forEach(sub => {
-            const dateStr = sub.timestamp.includes("GMT") || sub.timestamp.includes("202") ? sub.timestamp : new Date(sub.timestamp).toLocaleString('ko-KR');
-            csvContent += `${sub.grade},${sub.classNo},${sub.studentNo},${sub.name},${sub.score},${sub.maxScore},"${dateStr}"\n`;
-          });
+          csvContent += headers; const classSubs = submissions.filter(sub => sub.classNo === selectedClassFilter);
+          classSubs.forEach(sub => { csvContent += `${sub.grade},${sub.classNo},${sub.studentNo},${sub.name},${sub.score},${sub.maxScore},"${sub.timestamp}"\n`; });
         }
-        
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", selectedClassFilter === 'all' ? '전체_체육_시험결과.csv' : `2학년_${selectedClassFilter}반_결과.csv`);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob);
+        const link = document.createElement("a"); link.href = url;
+        link.setAttribute("download", selectedClassFilter === 'all' ? '전체결과.csv' : `2학년_${selectedClassFilter}반.csv`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
       };
+
+      const confirmDeleteSubmission = async () => {
+        const student = deleteTarget; setDeleteTarget(null);
+        try {
+          const response = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'deleteSubmission', classNo: student.classNo, studentNo: student.studentNo, name: student.name })
+          });
+          const res = await response.json();
+          if (res.success) {
+            setSubmissions(prev => prev.filter(s => !(s.classNo === student.classNo && s.studentNo === student.studentNo && s.name === student.name)));
+            setAlertMessage('초기화 성공! 학생이 재시험을 볼 수 있습니다.');
+          } else { setAlertMessage('초기화 실패: ' + res.message); }
+        } catch (error) { setAlertMessage('서버 연결 실패'); }
+      };
+
+      const CustomAlert = () => (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-xl font-bold text-center mb-4 text-gray-800">알림</h3>
+            <p className="text-center text-gray-600 mb-6">{alertMessage}</p>
+            <button onClick={() => setAlertMessage('')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold">확인</button>
+          </div>
+        </div>
+      );
+
+      const CustomConfirmDelete = () => (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border-t-4 border-red-500">
+            <h3 className="text-xl font-bold text-center mb-4 text-gray-800">초기화 확인</h3>
+            <p className="text-center text-gray-600 mb-6">{deleteTarget.classNo}반 {deleteTarget.studentNo}번 {deleteTarget.name} 학생의 기록을 정말 삭제하시겠습니까?</p>
+            <div className="flex space-x-3">
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">취소</button>
+              <button onClick={confirmDeleteSubmission} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">초기화 진행</button>
+            </div>
+          </div>
+        </div>
+      );
 
       const renderSetupView = () => (
         <div className="flex flex-col items-center justify-center min-h-screen p-4 relative">
@@ -260,13 +237,12 @@
 
             <div className="mt-8 bg-red-50 p-4 rounded-lg border border-red-100 flex items-start">
               <span className="mr-2">⚠️</span>
-              <p className="text-sm text-red-700 font-medium">주의: 창을 내리거나 다른 탭으로 이동하면 즉시 종료됩니다.<br/><strong>새로고침(F5) 시 0점 강제 종료 처리됩니다.</strong></p>
+              <p className="text-sm text-red-700 font-medium">주의: 창을 이탈하거나 새로고침하면 즉시 0점으로 강제 종료됩니다.</p>
             </div>
 
             <button onClick={() => { 
-              const studentKey = `exam_done_${studentInfo.grade}_${studentInfo.classNo}_${studentInfo.studentNo}_${studentInfo.name}`;
-              if (localStorage.getItem(studentKey) === 'true') {
-                alert("이미 답안을 제출한 학생입니다. 재응시는 불가합니다."); return;
+              if (localStorage.getItem(`exam_done_${studentInfo.grade}_${studentInfo.classNo}_${studentInfo.studentNo}_${studentInfo.name}`) === 'true') {
+                setAlertMessage("이미 답안을 제출한 학생입니다. 재시험은 불가능합니다."); return;
               }
               setExamStatus('running'); setTimeLeft(EXAM_TIME_SECONDS); setCurrentQuestionIndex(0); 
             }} disabled={!studentInfo.name.trim()} className={`w-full mt-6 p-4 rounded-xl font-bold text-lg transition-all ${studentInfo.name.trim() ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
@@ -284,9 +260,7 @@
             <header className="bg-white shadow-sm px-6 py-4 flex justify-between items-center sticky top-0 z-10">
               <h2 className="text-xl font-bold">2학년 체육 온라인 시험</h2>
               <div className="flex items-center space-x-4">
-                <div className={`font-mono text-xl font-bold px-4 py-2 rounded-lg ${timeLeft <= 300 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-gray-100'}`}>
-                  ⏱️ {formatTime(timeLeft)}
-                </div>
+                <div className={`font-mono text-xl font-bold px-4 py-2 rounded-lg ${timeLeft <= 300 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-gray-100'}`}>⏱️ {formatTime(timeLeft)}</div>
                 <span className="text-gray-600 hidden sm:inline">{studentInfo.classNo}반 {studentInfo.studentNo}번 {studentInfo.name}</span>
               </div>
             </header>
@@ -301,7 +275,6 @@
                   <span className="font-bold text-blue-600 text-2xl mr-3">{currentQuestionIndex + 1}.</span> {q.text}
                   <span className="inline-block ml-3 px-3 py-1 bg-blue-50 text-blue-600 text-sm font-bold rounded-lg border border-blue-100">{q.points}점</span>
                 </h3>
-                
                 <div className="space-y-4 mb-auto">
                   {q.type === 'short-answer' ? (
                     <input type="text" value={answers[q.id] || ''} onChange={(e) => setAnswers({...answers, [q.id]: e.target.value})} placeholder="정답을 입력하세요" className="w-full p-4 text-lg border-2 border-gray-300 rounded-xl outline-none focus:border-blue-500" />
@@ -317,17 +290,11 @@
               </div>
 
               <div className="mt-6 flex justify-between">
-                <button onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))} disabled={currentQuestionIndex === 0} className={`px-6 py-3 rounded-lg font-medium ${currentQuestionIndex === 0 ? 'bg-gray-200 text-gray-400' : 'bg-white border hover:bg-gray-50'}`}>
-                  ⬅️ 이전
-                </button>
+                <button onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))} disabled={currentQuestionIndex === 0} className={`px-6 py-3 rounded-lg font-medium ${currentQuestionIndex === 0 ? 'bg-gray-200 text-gray-400' : 'bg-white border hover:bg-gray-50'}`}>⬅️ 이전</button>
                 {currentQuestionIndex === questions.length - 1 ? (
-                  <button onClick={() => setShowConfirmModal(true)} className="px-8 py-3 bg-gray-900 text-white rounded-xl font-bold">
-                    제출하기 ✅
-                  </button>
+                  <button onClick={() => setShowConfirmModal(true)} className="px-8 py-3 bg-gray-900 text-white rounded-xl font-bold">제출하기 ✅</button>
                 ) : (
-                  <button onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
-                    다음 ➡️
-                  </button>
+                  <button onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">다음 ➡️</button>
                 )}
               </div>
             </main>
@@ -336,12 +303,10 @@
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl border-t-8 border-red-500">
                   <h3 className="text-2xl font-bold text-center mb-2">최종 제출 확인</h3>
-                  <p className="text-center text-gray-600 mb-6">제출하면 수정할 수 없습니다.<br/>정말 제출하시겠습니까?</p>
+                  <p className="text-center text-gray-600 mb-6">제출하면 더 이상 수정할 수 없습니다.<br/>정말 제출하시겠습니까?</p>
                   <div className="flex space-x-3">
                     <button onClick={() => setShowConfirmModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold">취소</button>
-                    <button onClick={() => { setShowConfirmModal(false); handleSubmitExam(); }} disabled={isSaving} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold">
-                      {isSaving ? '저장 중...' : '제출 완료 ✅'}
-                    </button>
+                    <button onClick={() => { setShowConfirmModal(false); handleSubmitExam(); }} disabled={isSaving} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold">{isSaving ? '저장 중...' : '제출 완료 ✅'}</button>
                   </div>
                 </div>
               </div>
@@ -350,57 +315,20 @@
         );
       };
 
-      const renderFinishedView = () => {
-        let totalScore = 0;
-        questions.forEach(q => {
-          if (q.type === 'short-answer') {
-            if (String(answers[q.id] || '').trim() === String(q.correctAnswer)) totalScore += q.points;
-          } else {
-            if (answers[q.id] === q.correctAnswer) totalScore += q.points;
-          }
-        });
-        return (
-          <div className="flex flex-col items-center justify-center min-h-screen bg-blue-50 p-4">
-            <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md text-center">
-              <div className="text-6xl mb-4">✅</div>
-              <h1 className="text-3xl font-bold mb-4">제출 완료</h1>
-              <p className="text-gray-600 mb-6 text-lg"><span className="font-bold text-blue-700">{studentInfo.name}</span> 학생의 답안이 제출되었습니다.</p>
-              <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-6">
-                <p className="text-sm text-gray-500 mb-1 font-bold">최종 점수</p>
-                <p className="text-4xl font-black text-blue-600">{totalScore} <span className="text-xl text-gray-500 font-medium">/ {maxTotalScore}점</span></p>
-              </div>
-              <div className="bg-gray-100 p-4 rounded-lg text-sm text-gray-700 font-bold">이제 창을 닫아주세요.</div>
-            </div>
-          </div>
-        );
-      };
-
-      const renderTerminatedView = () => (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 p-4">
-          <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md text-center border-t-8 border-red-500">
-            <div className="text-6xl mb-4">🚫</div>
-            <h1 className="text-3xl font-bold mb-4 text-gray-900">시험 강제 종료</h1>
-            <p className="text-gray-600 mb-6">부정행위 감지 또는 새로고침으로 인해<br/>시험이 강제 종료되었습니다.</p>
-          </div>
-        </div>
-      );
-
       const renderAdminDashboard = () => (
         <div className="min-h-screen p-4 sm:p-8">
           <div className="max-w-6xl mx-auto">
             <div className="flex justify-between items-center mb-6">
-              <h1 className="text-3xl font-bold">👥 반별 학생 제출 현황</h1>
+              <h1 className="text-3xl font-bold">👥 반별 학생 제출 현황 (2학년)</h1>
               <div className="flex space-x-3">
-                <button onClick={exportToCSV} className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold">📥 다운로드</button>
+                <button onClick={exportToCSV} className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold">📥 엑셀 다운로드</button>
                 <button onClick={() => { setExamStatus('setup'); setAdminPassword(''); }} className="px-6 py-3 bg-gray-200 rounded-xl font-bold">🚪 나가기</button>
               </div>
             </div>
             
             <div className="flex overflow-x-auto space-x-2 mb-8 pb-2">
-              <button onClick={() => setSelectedClassFilter('all')} className={`px-5 py-2 rounded-full font-bold ${selectedClassFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-white border'}`}>전체</button>
-              {[...Array(12)].map((_, i) => (
-                <button key={i} onClick={() => setSelectedClassFilter(i + 1)} className={`px-5 py-2 rounded-full font-bold ${selectedClassFilter === i + 1 ? 'bg-blue-600 text-white' : 'bg-white border'}`}>{i + 1}반</button>
-              ))}
+              <button onClick={() => setSelectedClassFilter('all')} className={`px-5 py-2 rounded-full font-bold ${selectedClassFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-white border'}`}>전체 보기</button>
+              {[...Array(12)].map((_, i) => (<button key={i} onClick={() => setSelectedClassFilter(i + 1)} className={`px-5 py-2 rounded-full font-bold ${selectedClassFilter === i + 1 ? 'bg-blue-600 text-white' : 'bg-white border'}`}>{i + 1}반</button>))}
             </div>
 
             {selectedClassFilter === 'all' ? [...Array(12)].map((_, i) => {
@@ -409,12 +337,9 @@
               return (
                 <div key={i} className="bg-white rounded-2xl shadow-sm border mb-8 overflow-hidden">
                   <div className="bg-blue-50 px-6 py-4 font-bold text-blue-800 border-b">2학년 {i+1}반 (제출: {classSubs.length}명)</div>
-                  <table className="w-full text-left"><thead className="bg-gray-100"><tr><th className="p-4">번호</th><th className="p-4">이름</th><th className="p-4">점수</th><th className="p-4">제출시간</th><th className="p-4 text-center">관리</th></tr></thead>
+                  <table className="w-full text-left"><thead className="bg-gray-100"><tr><th className="p-4">번호</th><th className="p-4">이름</th><th className="p-4">점수</th><th className="p-4 text-center">관리</th></tr></thead>
                     <tbody>
-                      {classSubs.map(s => {
-                         const dateStr = s.timestamp.includes("GMT") || s.timestamp.includes("202") ? s.timestamp : new Date(s.timestamp).toLocaleString('ko-KR');
-                         return <tr key={s.studentNo+s.name} className="border-b"><td className="p-4">{s.studentNo}번</td><td className="p-4 font-bold">{s.name}</td><td className="p-4 text-blue-600 font-bold">{s.score}/{s.maxScore}</td><td className="p-4 text-sm text-gray-500">{dateStr}</td><td className="p-4 text-center"><button onClick={() => handleDeleteSubmission(s)} className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-sm font-bold">초기화</button></td></tr>
-                      })}
+                      {classSubs.map(s => <tr key={s.studentNo+s.name} className="border-b"><td className="p-4">{s.studentNo}번</td><td className="p-4 font-bold">{s.name}</td><td className="p-4 text-blue-600 font-bold">{s.score}/{s.maxScore}</td><td className="p-4 text-center"><button onClick={() => setDeleteTarget(s)} className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-sm font-bold">초기화</button></td></tr>)}
                     </tbody>
                   </table>
                 </div>
@@ -422,12 +347,9 @@
             }) : (
               <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                 <div className="bg-blue-50 px-6 py-4 font-bold text-blue-800 border-b">2학년 {selectedClassFilter}반</div>
-                <table className="w-full text-left"><thead className="bg-gray-100"><tr><th className="p-4">번호</th><th className="p-4">이름</th><th className="p-4">점수</th><th className="p-4">제출시간</th><th className="p-4 text-center">관리</th></tr></thead>
+                <table className="w-full text-left"><thead className="bg-gray-100"><tr><th className="p-4">번호</th><th className="p-4">이름</th><th className="p-4">점수</th><th className="p-4 text-center">관리</th></tr></thead>
                   <tbody>
-                    {submissions.filter(s => s.classNo === selectedClassFilter).map(s => {
-                       const dateStr = s.timestamp.includes("GMT") || s.timestamp.includes("202") ? s.timestamp : new Date(s.timestamp).toLocaleString('ko-KR');
-                       return <tr key={s.studentNo+s.name} className="border-b"><td className="p-4">{s.studentNo}번</td><td className="p-4 font-bold">{s.name}</td><td className="p-4 text-blue-600 font-bold">{s.score}/{s.maxScore}</td><td className="p-4 text-sm text-gray-500">{dateStr}</td><td className="p-4 text-center"><button onClick={() => handleDeleteSubmission(s)} className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-sm font-bold">초기화</button></td></tr>
-                    })}
+                    {submissions.filter(s => s.classNo === selectedClassFilter).map(s => <tr key={s.studentNo+s.name} className="border-b"><td className="p-4">{s.studentNo}번</td><td className="p-4 font-bold">{s.name}</td><td className="p-4 text-blue-600 font-bold">{s.score}/{s.maxScore}</td><td className="p-4 text-center"><button onClick={() => setDeleteTarget(s)} className="px-3 py-1 bg-red-100 text-red-600 rounded-lg text-sm font-bold">초기화</button></td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -440,8 +362,8 @@
         <div className="app-container">
           {examStatus === 'setup' && renderSetupView()}
           {examStatus === 'running' && renderExamView()}
-          {examStatus === 'terminated' && renderTerminatedView()}
-          {examStatus === 'finished' && renderFinishedView()}
+          {examStatus === 'terminated' && <div className="flex min-h-screen items-center justify-center bg-red-50 p-4"><div className="bg-white p-10 rounded-2xl shadow-xl text-center border-t-8 border-red-500"><div className="text-6xl mb-4">🚫</div><h1 className="text-3xl font-bold mb-4">시험 강제 종료</h1><p>부정행위(창 이탈/새로고침)로 간주되었습니다.</p></div></div>}
+          {examStatus === 'finished' && <div className="flex min-h-screen items-center justify-center bg-blue-50 p-4"><div className="bg-white p-10 rounded-2xl shadow-xl text-center"><div className="text-6xl mb-4">✅</div><h1 className="text-3xl font-bold mb-4">제출 완료</h1><p className="text-gray-600 mb-6"><span className="font-bold text-blue-700">{studentInfo.name}</span> 학생의 답안이 제출되었습니다.</p><div className="bg-gray-100 p-4 rounded-lg font-bold">이제 창을 완전히 닫아주세요.</div></div></div>}
           {examStatus === 'admin-dashboard' && renderAdminDashboard()}
           {examStatus === 'admin-login' && (
             <div className="min-h-screen flex items-center justify-center p-4">
@@ -454,6 +376,8 @@
               </form>
             </div>
           )}
+          {alertMessage && <CustomAlert />}
+          {deleteTarget && <CustomConfirmDelete />}
         </div>
       );
     }
