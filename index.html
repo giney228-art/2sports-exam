@@ -28,7 +28,7 @@
     const { useState, useEffect, useRef } = React;
 
     // ★★★ 선생님의 구글 웹앱 URL이 완벽하게 적용되었습니다! ★★★
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbxxSp0XX-qDKr6pEDKWIzwlAAQNfwh_jd4xxn_exmo_Xn6QJgwx6EYStUTmKlJitHYD/exec";
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyxS6W-SjTyih-m2CrKDa3DauSOcI1R60cltTFZaXMnqHwnC0GZKqGQpwnDwuCYkGEIvQ/exec";
 
     function App() {
       const [examStatus, setExamStatus] = useState(() => {
@@ -56,7 +56,7 @@
       const [timeLeft, setTimeLeft] = useState(EXAM_TIME_SECONDS);
       const timerRef = useRef(null);
 
-      // ※ 여기에 2학년 문제들이 들어갈 자리입니다! (현재는 임시 데이터)
+      // ※ 여기에 2학년 문제들이 들어갈 자리입니다! (현재는 임시 야구 문제 데이터)
       const questions = [
         { id: 1, type: 'multiple-choice', points: 1, correctAnswer: 0, text: "야구에서 공격 팀이 1점을 얻기 위해 타자나 주자가 반드시 순서대로 거쳐야 하는 베이스 경로로 옳은 것을 고르시오.", options: ["1루->2루->3루->홈", "3루->2루->1루->홈", "1루->3루->2루->홈", "2루->3루->1루->홈"] },
         { id: 2, type: 'multiple-choice', points: 1, correctAnswer: 1, text: "플레이트 야구에서 투수가 공을 굴려주는 기구의 이름을 고르시오.", options: ["평균대", "경사판", "티볼대", "구령대"] },
@@ -124,16 +124,20 @@
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'saveSubmission', data: submissionData })
           });
+          
           const res = await response.json();
           setIsSaving(false);
+          
           if (res.success) {
             localStorage.setItem(`exam_done_${studentInfo.grade}_${studentInfo.classNo}_${studentInfo.studentNo}_${studentInfo.name}`, 'true');
             setExamStatus('finished');
           } else {
-            setAlertMessage("저장 실패: " + res.error);
+            // undefined 에러 방지: 구글 서버에서 보낸 에러 메시지를 명확하게 표시
+            setAlertMessage("저장 실패: " + (res.error || res.message || "서버 통신 중 알 수 없는 오류가 발생했습니다."));
           }
         } catch (error) {
-          setIsSaving(false); setAlertMessage("서버 연결 실패: " + error.toString());
+          setIsSaving(false); 
+          setAlertMessage("서버 연결 실패: 인터넷 연결을 확인하거나 관리자에게 문의하세요. (" + error.toString() + ")");
         }
       };
 
@@ -146,7 +150,7 @@
           if (res.success) {
             const sorted = res.data.sort((a, b) => { if (a.classNo !== b.classNo) return a.classNo - b.classNo; return a.studentNo - b.studentNo; });
             setSubmissions(sorted); setAdminError(''); setExamStatus('admin-dashboard'); setSelectedClassFilter('all');
-          } else { setAdminError(res.message); }
+          } else { setAdminError(res.message || res.error || '오류 발생'); }
         } catch (error) { setAdminError("오류: " + error.toString()); }
       };
 
@@ -180,7 +184,7 @@
           if (res.success) {
             setSubmissions(prev => prev.filter(s => !(s.classNo === student.classNo && s.studentNo === student.studentNo && s.name === student.name)));
             setAlertMessage('초기화 성공! 학생이 재시험을 볼 수 있습니다.');
-          } else { setAlertMessage('초기화 실패: ' + res.message); }
+          } else { setAlertMessage('초기화 실패: ' + (res.error || res.message)); }
         } catch (error) { setAlertMessage('서버 연결 실패'); }
       };
 
@@ -188,8 +192,8 @@
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <h3 className="text-xl font-bold text-center mb-4 text-gray-800">알림</h3>
-            <p className="text-center text-gray-600 mb-6">{alertMessage}</p>
-            <button onClick={() => setAlertMessage('')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold">확인</button>
+            <p className="text-center text-gray-600 mb-6 font-medium">{alertMessage}</p>
+            <button onClick={() => setAlertMessage('')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">확인</button>
           </div>
         </div>
       );
